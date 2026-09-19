@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Installed via: git config core.hooksPath .githooks && chmod +x .githooks/*
+# (put that one-time step in AGENTS.md's Setup section)
+#
+# Philosophy: rules should guide, not control. This hook hard-blocks on
+# exactly one thing (a missing commit identity, which silently orphans
+# commits with no way to trace them back to a person) and only *notifies* —
+# never blocks — on everything else. If you need more hard blocks, add them
+# deliberately and keep the list short; a hook that blocks on everything
+# trains people to bypass it with --no-verify, which defeats the point.
+
+set -e
+
+# --- Hard block: commit identity must be set ---
+# Why this one is worth blocking on: an unattributed commit isn't just
+# untidy, it's actually unrecoverable later — there's no way to ask "whose
+# change was this" after the fact if git never recorded an answer.
+if ! git config user.email > /dev/null 2>&1; then
+  echo "This commit would have no author email set, so it can't be attributed to anyone."
+  echo "Run: git config --global user.email \"<the address your GitHub account verifies>\""
+  exit 1
+fi
+
+# --- Soft notice: touching a path listed in OWNERS ---
+# Never blocks — just a heads-up in case you didn't realize the path is
+# someone else's to restructure. See OWNERS and references/principles.md.
+OWNERS_FILE="$(git rev-parse --show-toplevel)/OWNERS"
+if [ -f "$OWNERS_FILE" ]; then
+  staged=$(git diff --cached --name-only || true)
+  while IFS= read -r line; do
+    case "$line" in
+      \#*|"") continue ;;
+    esac
+    glob="${line%% *}"
+    owner="${line#*owner=}"
+    for f in $staged; do
+      case "$f" in
+        $glob)
+          echo "Note: $f is listed in OWNERS as $owner's — leave a defect note instead of restructuring it, unless that's you."
+          ;;
+      esac
+    done
+  done < "$OWNERS_FILE"
+fi
+
+exit 0
